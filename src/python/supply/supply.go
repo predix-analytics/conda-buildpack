@@ -132,6 +132,11 @@ func RunPython(s *Supplier) error {
 		return err
 	}
 
+	if err := s.RunPipConda(); err != nil {
+		s.Log.Error("Could not install conda packages using pip: %v", err)
+		return err
+	}
+
 	if err := s.DownloadNLTKCorpora(); err != nil {
 		s.Log.Error("Could not download NLTK Corpora: %v", err)
 		return err
@@ -623,4 +628,33 @@ func (s *Supplier) SetupCacheDir() error {
 		return err
 	}
 	return nil
+}
+
+func (s *Supplier) RunPipConda() error {
+	s.Log.BeginStep("Running Pip Install for conda packages")
+	if exists, err := libbuildpack.FileExists(filepath.Join(s.Stager.DepDir(), "conda_requirements.txt")); err != nil {
+		return fmt.Errorf("Couldn't determine existence of conda_requirements.txt")
+	} else if !exists {
+		s.Log.Debug("Skipping 'pip install for conda packages' since conda_requirements.txt does not exist")
+		return nil
+	}
+
+	installArgs := []string{"install", "-r", filepath.Join(s.Stager.DepDir(), "conda_requirements.txt"), "--ignore-installed", "--exists-action=w", "--src=" + filepath.Join(s.Stager.DepDir(), "src")}
+	vendorExists, err := libbuildpack.FileExists(filepath.Join(s.Stager.BuildDir(), "vendor"))
+	if err != nil {
+		return fmt.Errorf("Couldn't check vendor existence: %v", err)
+	} else if vendorExists {
+		installArgs = append(installArgs, "--no-index", "--find-links=file://"+filepath.Join(s.Stager.BuildDir(), "vendor"))
+	}
+
+	if err := s.Command.Execute(s.Stager.BuildDir(), indentWriter(os.Stdout), indentWriter(os.Stderr), "pip", installArgs...); err != nil {
+		s.Log.Debug("******Path val: %s", os.Getenv("PATH"))
+
+		if vendorExists {
+			s.Log.Info("pip install has failed. You have a vendor directory, it must contain all of your dependencies.")
+		}
+		return fmt.Errorf("Couldn't run pip: %v", err)
+	}
+
+	return s.Stager.LinkDirectoryInDepDir(filepath.Join(s.Stager.DepDir(), "python", "bin"), "bin")
 }
