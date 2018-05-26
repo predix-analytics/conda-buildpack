@@ -661,10 +661,11 @@ func (s *Supplier) MergeFiles() error {
 	if err != nil {
 		return err
 	}
-	err := f.WriteString(string(b)) 
+	n, err := f.WriteString(string(b)) 
 	if err != nil {
 		return err
 	}
+	fmt.Printf("\nLength: %d bytes", n)
 	f.Close()
 	
 	s.Log.BeginStep("requirements.txt after merge")
