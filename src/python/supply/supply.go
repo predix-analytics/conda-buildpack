@@ -519,8 +519,6 @@ func (s *Supplier) RunPip() error {
 		return nil
 	}
 	
-	cat "conda-requirements.txt" >> "requirements.txt"
-
 	installArgs := []string{"install", "-r", filepath.Join(s.Stager.DepDir(), "requirements.txt"), "--ignore-installed", "--exists-action=w", "--src=" + filepath.Join(s.Stager.DepDir(), "src")}
 	vendorExists, err := libbuildpack.FileExists(filepath.Join(s.Stager.BuildDir(), "vendor"))
 	if err != nil {
