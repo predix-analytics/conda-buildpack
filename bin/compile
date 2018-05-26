@@ -14,8 +14,3 @@ echo "export DEPS_DIR=\$HOME/.cloudfoundry" > "$BUILD_DIR/.profile.d/0000_set-de
 
 $BUILDPACK_PATH/bin/supply "$BUILD_DIR" "$CACHE_DIR" "$DEPS_DIR" 0
 $BUILDPACK_PATH/bin/finalize "$BUILD_DIR" "$CACHE_DIR" "$DEPS_DIR" 0
-
-puts-step "Installing dependencies using Conda"
-conda install --file conda-requirements.txt --yes | indent
-conda clean -pt --yes > /dev/null
-
