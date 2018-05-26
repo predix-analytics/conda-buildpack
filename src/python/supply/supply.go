@@ -519,6 +519,11 @@ func (s *Supplier) RunPip() error {
 		return nil
 	}
 	
+	if err := s.MergeFiles(); err != nil {
+		s.Log.Error("Could not merge conda-requirements.txt to requirements.txt: %v", err)
+		return err
+	}
+	
 	installArgs := []string{"install", "-r", filepath.Join(s.Stager.DepDir(), "requirements.txt"), "--ignore-installed", "--exists-action=w", "--src=" + filepath.Join(s.Stager.DepDir(), "src")}
 	vendorExists, err := libbuildpack.FileExists(filepath.Join(s.Stager.BuildDir(), "vendor"))
 	if err != nil {
