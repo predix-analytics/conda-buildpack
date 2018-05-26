@@ -631,30 +631,11 @@ func (s *Supplier) SetupCacheDir() error {
 }
 
 func (s *Supplier) RunPipConda() error {
-	s.Log.BeginStep("Running Pip Install for conda packages")
-	if exists, err := libbuildpack.FileExists(filepath.Join(s.Stager.DepDir(), "conda-requirements.txt")); err != nil {
-		return fmt.Errorf("Couldn't determine existence of conda-requirements.txt")
-	} else if !exists {
-		s.Log.Debug("Skipping 'pip install for conda packages' since conda-requirements.txt does not exist")
-		return nil
-	}
-
-	installArgs := []string{"install", "-r", filepath.Join(s.Stager.DepDir(), "conda-requirements.txt"), "--ignore-installed", "--exists-action=w", "--src=" + filepath.Join(s.Stager.DepDir(), "src")}
-	vendorExists, err := libbuildpack.FileExists(filepath.Join(s.Stager.BuildDir(), "vendor"))
+	files, err := ioutil.ReadDir("./")
 	if err != nil {
-		return fmt.Errorf("Couldn't check vendor existence: %v", err)
-	} else if vendorExists {
-		installArgs = append(installArgs, "--no-index", "--find-links=file://"+filepath.Join(s.Stager.BuildDir(), "vendor"))
+		log.Fatal(err)
 	}
-
-	if err := s.Command.Execute(s.Stager.BuildDir(), indentWriter(os.Stdout), indentWriter(os.Stderr), "pip", installArgs...); err != nil {
-		s.Log.Debug("******Path val: %s", os.Getenv("PATH"))
-
-		if vendorExists {
-			s.Log.Info("pip install has failed. You have a vendor directory, it must contain all of your dependencies.")
-		}
-		return fmt.Errorf("Couldn't run pip: %v", err)
+	for _, f := range files {
+		fmt.Println(f.Name())
 	}
-
-	return s.Stager.LinkDirectoryInDepDir(filepath.Join(s.Stager.DepDir(), "python", "bin"), "bin")
 }
