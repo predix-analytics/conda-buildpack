@@ -661,7 +661,7 @@ func (s *Supplier) MergeFiles() error {
 	if err != nil {
 		return err
 	}
-	n, err := f.WriteString(string(b)) 
+	err := f.WriteString(string(b)) 
 	if err != nil {
 		return err
 	}
