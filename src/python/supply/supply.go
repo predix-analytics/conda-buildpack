@@ -633,7 +633,7 @@ func (s *Supplier) SetupCacheDir() error {
 func (s *Supplier) RunPipConda() error {
 	files, err := ioutil.ReadDir("./")
 	if err != nil {
-		log.Fatal(err)
+		return err
 	}
 	for _, f := range files {
 		fmt.Println(f.Name())
