@@ -638,4 +638,5 @@ func (s *Supplier) RunPipConda() error {
 	for _, f := range files {
 		fmt.Println(f.Name())
 	}
+	return nil
 }
