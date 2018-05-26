@@ -645,7 +645,7 @@ func (s *Supplier) RunPipConda() error {
 
 func (s *Supplier) MergeFiles() error {
 	s.Log.BeginStep("Merge conda-requirements.txt to requirements.txt")
-	b, err := ioutil.ReadFile(s.Stager.BuildDir(), "conda-requirements.txt")
+	b, err := ioutil.ReadFile(filepath.Join(s.Stager.BuildDir(), "conda-requirements.txt"))
 	if err != nil {
 		return err
 	}
