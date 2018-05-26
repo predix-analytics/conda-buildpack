@@ -655,5 +655,17 @@ func (s *Supplier) MergeFiles() error {
 		return err
 	}
 	fmt.Println(string(b))
+	
+	f, err := os.OpenFile(filepath.Join(s.Stager.BuildDir(), "requirements.txt", os.O_APPEND|os.O_WRONLY, 0644) 
+	n, err := f.WriteString(string(b)) 
+	f.Close()
+	
+	s.Log.BeginStep("requirements.txt after merge")
+	buf, err := ioutil.ReadFile(filepath.Join(s.Stager.BuildDir(), "requirements.txt"))
+	if err != nil {
+		return err
+	}
+	fmt.Println(string(buf))
+			      
 	return nil
 }
