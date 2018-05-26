@@ -340,6 +340,11 @@ func (s *Supplier) InstallPipEnv() error {
 		return err
 	}
 
+	if err := s.MergeFiles(); err != nil {
+		s.Log.Error("Could not merge conda-requirements.txt to requirements.txt: %v", err)
+		return err
+	}
+	
 	pipfileExists, err := libbuildpack.FileExists(filepath.Join(s.Stager.BuildDir(), "Pipfile"))
 	if err != nil {
 		return err
@@ -517,11 +522,6 @@ func (s *Supplier) RunPip() error {
 	} else if !exists {
 		s.Log.Debug("Skipping 'pip install' since requirements.txt does not exist")
 		return nil
-	}
-	
-	if err := s.MergeFiles(); err != nil {
-		s.Log.Error("Could not merge conda-requirements.txt to requirements.txt: %v", err)
-		return err
 	}
 	
 	installArgs := []string{"install", "-r", filepath.Join(s.Stager.DepDir(), "requirements.txt"), "--ignore-installed", "--exists-action=w", "--src=" + filepath.Join(s.Stager.DepDir(), "src")}
