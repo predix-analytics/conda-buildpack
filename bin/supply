@@ -18,8 +18,3 @@ echo "-----> Running go build supply"
 GOROOT=$GoInstallDir/go GOPATH=$BUILDPACK_DIR $GoInstallDir/go/bin/go build -o $output_dir/supply python/supply/cli
 
 $output_dir/supply "$BUILD_DIR" "$CACHE_DIR" "$DEPS_DIR" "$DEPS_IDX"
-
-if [ -f conda-requirements.txt ]; then
-    echo "Installing dependencies using Conda"
-    conda install --file conda-requirements.txt --yes | indent
-fi
