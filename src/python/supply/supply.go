@@ -631,11 +631,13 @@ func (s *Supplier) SetupCacheDir() error {
 }
 
 func (s *Supplier) RunPipConda() error {
-	files, err := ioutil.ReadDir("./")
+	s.Log.BeginStep("Running Pip Install for conda packages")
+	files, err := ioutil.ReadDir(s.Stager.BuildDir())
 	if err != nil {
 		return err
 	}
 	for _, f := range files {
+		s.Log.BeginStep("printing conda package name")
 		fmt.Println(f.Name())
 	}
 	return nil
