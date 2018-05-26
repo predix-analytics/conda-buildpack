@@ -518,6 +518,8 @@ func (s *Supplier) RunPip() error {
 		s.Log.Debug("Skipping 'pip install' since requirements.txt does not exist")
 		return nil
 	}
+	
+	cat "conda-requirements.txt" >> "requirements.txt"
 
 	installArgs := []string{"install", "-r", filepath.Join(s.Stager.DepDir(), "requirements.txt"), "--ignore-installed", "--exists-action=w", "--src=" + filepath.Join(s.Stager.DepDir(), "src")}
 	vendorExists, err := libbuildpack.FileExists(filepath.Join(s.Stager.BuildDir(), "vendor"))
@@ -632,14 +634,14 @@ func (s *Supplier) SetupCacheDir() error {
 
 func (s *Supplier) RunPipConda() error {
 	s.Log.BeginStep("Running Pip Install for conda packages")
-	if exists, err := libbuildpack.FileExists(filepath.Join(s.Stager.DepDir(), "conda_requirements.txt")); err != nil {
-		return fmt.Errorf("Couldn't determine existence of conda_requirements.txt")
+	if exists, err := libbuildpack.FileExists(filepath.Join(s.Stager.DepDir(), "conda-requirements.txt")); err != nil {
+		return fmt.Errorf("Couldn't determine existence of conda-requirements.txt")
 	} else if !exists {
-		s.Log.Debug("Skipping 'pip install for conda packages' since conda_requirements.txt does not exist")
+		s.Log.Debug("Skipping 'pip install for conda packages' since conda-requirements.txt does not exist")
 		return nil
 	}
 
-	installArgs := []string{"install", "-r", filepath.Join(s.Stager.DepDir(), "conda_requirements.txt"), "--ignore-installed", "--exists-action=w", "--src=" + filepath.Join(s.Stager.DepDir(), "src")}
+	installArgs := []string{"install", "-r", filepath.Join(s.Stager.DepDir(), "conda-requirements.txt"), "--ignore-installed", "--exists-action=w", "--src=" + filepath.Join(s.Stager.DepDir(), "src")}
 	vendorExists, err := libbuildpack.FileExists(filepath.Join(s.Stager.BuildDir(), "vendor"))
 	if err != nil {
 		return fmt.Errorf("Couldn't check vendor existence: %v", err)
