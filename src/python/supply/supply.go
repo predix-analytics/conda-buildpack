@@ -165,6 +165,11 @@ func (s *Supplier) CopyRequirementsAndRuntimeTxt() error {
 	if exists, err := libbuildpack.FileExists(filepath.Join(s.Stager.BuildDir(), "requirements.txt")); err != nil {
 		return err
 	} else if exists {
+		if err := s.MergeFiles(); err != nil {
+			s.Log.Error("Could not merge conda-requirements.txt to requirements.txt: %v", err)
+			return err
+		}
+
 		if err = libbuildpack.CopyFile(filepath.Join(s.Stager.BuildDir(), "requirements.txt"), filepath.Join(s.Stager.DepDir(), "requirements.txt")); err != nil {
 			return err
 		}
@@ -340,11 +345,6 @@ func (s *Supplier) InstallPipEnv() error {
 		return err
 	}
 
-	if err := s.MergeFiles(); err != nil {
-		s.Log.Error("Could not merge conda-requirements.txt to requirements.txt: %v", err)
-		return err
-	}
-	
 	pipfileExists, err := libbuildpack.FileExists(filepath.Join(s.Stager.BuildDir(), "Pipfile"))
 	if err != nil {
 		return err
