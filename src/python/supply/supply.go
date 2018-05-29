@@ -7,6 +7,7 @@ import (
 	"io"
 	"io/ioutil"
 	"os"
+	"bufio"
 	"path/filepath"
 	"python/conda"
 	"python/pipfile"
@@ -646,14 +647,14 @@ func (s *Supplier) MergeFiles() error {
  	scanner := bufio.NewScanner(sourcefile)
 	for scanner.Scan() {
 		if(strings.ToLower(strings.TrimSpace(scanner.Text())) != "nomkl") {
-    			n, err := targetfile.WriteString(lines) 
+    			n, err := targetfile.WriteString(strings.TrimSpace(scanner.Text())) 
 			if err != nil {
 				return err
 			}
+			fmt.Printf("\nLength: %d bytes", n)
 		}
   	}
  	
-	fmt.Printf("\nLength: %d bytes", n)
 	sourcefile.Close()
 	targetfile.Close()
 	
