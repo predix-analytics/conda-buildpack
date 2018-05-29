@@ -637,26 +637,25 @@ func (s *Supplier) MergeFiles() error {
    		return err
  	}
   	
-	var lines []string
- 	scanner := bufio.NewScanner(sourcefile)
-	for scanner.Scan() {
-		if(strings.ToLower(strings.TrimSpace(scanner.Text())) != "nomkl") {
-    			lines = append(lines, scanner.Text())
-		}
-  	}
- 	
 	s.Log.BeginStep("appending to requirements.txt")
 	targetfile, err := os.OpenFile(filepath.Join(s.Stager.BuildDir(), "requirements.txt"), os.O_APPEND|os.O_WRONLY, 0644) 
 	if err != nil {
 		return err
 	}
-	n, err := targetfile.WriteString(lines) 
-	if err != nil {
-		return err
-	}
+
+ 	scanner := bufio.NewScanner(sourcefile)
+	for scanner.Scan() {
+		if(strings.ToLower(strings.TrimSpace(scanner.Text())) != "nomkl") {
+    			n, err := targetfile.WriteString(lines) 
+			if err != nil {
+				return err
+			}
+		}
+  	}
+ 	
 	fmt.Printf("\nLength: %d bytes", n)
-	sourcefile.close()
-	targetfile.close()
+	sourcefile.Close()
+	targetfile.Close()
 	
 	s.Log.BeginStep("requirements.txt after merge")
 	buf, err := ioutil.ReadFile(filepath.Join(s.Stager.BuildDir(), "requirements.txt"))
