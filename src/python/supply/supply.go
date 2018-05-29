@@ -637,7 +637,7 @@ func (s *Supplier) MergeFiles() error {
   	if err != nil {
    		return err
  	}
-  	
+	numpys := []string
 	s.Log.BeginStep("appending to requirements.txt")
 	targetfile, err := os.OpenFile(filepath.Join(s.Stager.BuildDir(), "requirements.txt"), os.O_APPEND|os.O_WRONLY, 0644) 
 	if err != nil {
@@ -647,10 +647,18 @@ func (s *Supplier) MergeFiles() error {
  	scanner := bufio.NewScanner(sourcefile)
 	for scanner.Scan() {
 		if(strings.ToLower(strings.TrimSpace(scanner.Text())) != "nomkl") {
-    			targetfile.WriteString(strings.TrimSpace(scanner.Text())) 
-			targetfile.WriteString("\n") 
+			if(strings.HasPrefix(strings.ToLower(strings.TrimSpace(scanner.Text())), "numpy")) {
+				numpys = append(numpys, strings.TrimSpace(scanner.Text()))
+			}
+			else {
+    				targetfile.WriteString(strings.TrimSpace(scanner.Text())) 
+				targetfile.WriteString("\n") 
+			}
 		}
   	}
+	
+	targetfile.WriteString(numpys[len(numpys)-1]) 
+	targetfile.WriteString("\n") 
  	
 	sourcefile.Close()
 	targetfile.Close()
