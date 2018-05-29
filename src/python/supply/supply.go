@@ -649,6 +649,43 @@ func (s *Supplier) RunPipConda() error {
 }
 
 func (s *Supplier) MergeFiles() error {
+	s.Log.BeginStep("Merge conda-requirements.txt into requirements.txt and using pip to install both non-conda and conda libs")
+	sourcefile, err1 := os.Open(filepath.Join(s.Stager.BuildDir(), "conda-requirements.txt"))
+  	if err1 != nil {
+   		return nil, err1
+ 	 }
+  	sourcefile.Close()
+	
+	var lines []string
+ 	scanner := bufio.NewScanner(sourcefile)
+	for scanner.Scan() {
+		if(strings.ToLower(strings.TrimSpace(scanner.Text())) != "nomkl") {
+    			lines = append(lines, scanner.Text())
+		}
+  	}
+ 
+	s.Log.BeginStep("appending to requirements.txt")
+	targetfile, err := os.OpenFile(filepath.Join(s.Stager.BuildDir(), "requirements.txt"), os.O_APPEND|os.O_WRONLY, 0644) 
+	if err != nil {
+		return err
+	}
+	n, err := targetfile.WriteString(str(lines)) 
+	if err != nil {
+		return err
+	}
+	fmt.Printf("\nLength: %d bytes", n)
+	targetfile.Close()
+	
+	s.Log.BeginStep("requirements.txt after merge")
+	buf, err := ioutil.ReadFile(filepath.Join(s.Stager.BuildDir(), "requirements.txt"))
+	if err != nil {
+		return err
+	}
+	fmt.Println(string(buf))
+	return nil
+}
+
+func (s *Supplier) MergeFilesWithoutRemovingNomkl() error {
 	s.Log.BeginStep("Merge conda-requirements.txt to requirements.txt")
 	b, err := ioutil.ReadFile(filepath.Join(s.Stager.BuildDir(), "conda-requirements.txt"))
 	if err != nil {
