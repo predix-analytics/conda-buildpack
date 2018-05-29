@@ -647,12 +647,10 @@ func (s *Supplier) MergeFiles() error {
  	scanner := bufio.NewScanner(sourcefile)
 	for scanner.Scan() {
 		if(strings.ToLower(strings.TrimSpace(scanner.Text())) != "nomkl") {
-			if(strings.HasPrefix(strings.ToLower(strings.TrimSpace(scanner.Text())), "numpy")) {
-				s.Log.BeginStep("numpy found")
+			if(strings.HasPrefix(strings.TrimSpace(scanner.Text()), "numpy")) {
 				numpys = append(numpys, strings.TrimSpace(scanner.Text()))
-			}
-			else {
-    				targetfile.WriteString(strings.TrimSpace(scanner.Text())) 
+			} else {
+				targetfile.WriteString(strings.TrimSpace(scanner.Text())) 
 				targetfile.WriteString("\n") 
 			}
 		}
