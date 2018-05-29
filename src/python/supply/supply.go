@@ -132,11 +132,6 @@ func RunPython(s *Supplier) error {
 		return err
 	}
 
-	if err := s.RunPipConda(); err != nil {
-		s.Log.Error("Could not install conda packages using pip: %v", err)
-		return err
-	}
-
 	if err := s.DownloadNLTKCorpora(); err != nil {
 		s.Log.Error("Could not download NLTK Corpora: %v", err)
 		return err
@@ -635,27 +630,13 @@ func (s *Supplier) SetupCacheDir() error {
 	return nil
 }
 
-func (s *Supplier) RunPipConda() error {
-	s.Log.BeginStep("Running Pip Install for conda packages")
-	files, err := ioutil.ReadDir(s.Stager.BuildDir())
-	if err != nil {
-		return err
-	}
-	for _, f := range files {
-		s.Log.BeginStep("printing conda package name")
-		fmt.Println(f.Name())
-	}
-	return nil
-}
-
 func (s *Supplier) MergeFiles() error {
 	s.Log.BeginStep("Merge conda-requirements.txt into requirements.txt and using pip to install both non-conda and conda libs")
-	sourcefile, err1 := os.Open(filepath.Join(s.Stager.BuildDir(), "conda-requirements.txt"))
-  	if err1 != nil {
-   		return nil, err1
- 	 }
-  	sourcefile.Close()
-	
+	sourcefile, err := os.Open(filepath.Join(s.Stager.BuildDir(), "conda-requirements.txt"))
+  	if err != nil {
+   		return err
+ 	}
+  	
 	var lines []string
  	scanner := bufio.NewScanner(sourcefile)
 	for scanner.Scan() {
@@ -663,18 +644,19 @@ func (s *Supplier) MergeFiles() error {
     			lines = append(lines, scanner.Text())
 		}
   	}
- 
+ 	
 	s.Log.BeginStep("appending to requirements.txt")
 	targetfile, err := os.OpenFile(filepath.Join(s.Stager.BuildDir(), "requirements.txt"), os.O_APPEND|os.O_WRONLY, 0644) 
 	if err != nil {
 		return err
 	}
-	n, err := targetfile.WriteString(str(lines)) 
+	n, err := targetfile.WriteString(lines) 
 	if err != nil {
 		return err
 	}
 	fmt.Printf("\nLength: %d bytes", n)
-	targetfile.Close()
+	sourcefile.close()
+	targetfile.close()
 	
 	s.Log.BeginStep("requirements.txt after merge")
 	buf, err := ioutil.ReadFile(filepath.Join(s.Stager.BuildDir(), "requirements.txt"))
