@@ -648,7 +648,7 @@ func (s *Supplier) MergeFiles() error {
 	for scanner.Scan() {
 		if(strings.ToLower(strings.TrimSpace(scanner.Text())) != "nomkl") {
 			if(strings.HasPrefix(strings.ToLower(strings.TrimSpace(scanner.Text())), "numpy")) {
-				s.Log.BeginStep(strings.Join("finding numpy version: " + strings.TrimSpace(scanner.Text())))
+				s.Log.BeginStep("numpy found")
 				numpys = append(numpys, strings.TrimSpace(scanner.Text()))
 			}
 			else {
