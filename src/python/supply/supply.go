@@ -170,6 +170,13 @@ func (s *Supplier) CopyRequirementsAndRuntimeTxt() error {
 			return err
 		}
 	}
+	if exists, err := libbuildpack.FileExists(filepath.Join(s.Stager.BuildDir(), "constraints.txt")); err != nil {
+		return err
+	} else if exists {
+		if err = libbuildpack.CopyFile(filepath.Join(s.Stager.BuildDir(), "constraints.txt"), filepath.Join(s.Stager.DepDir(), "constraints.txt")); err != nil {
+			return err
+		}
+	}
 	if exists, err := libbuildpack.FileExists(filepath.Join(s.Stager.BuildDir(), "runtime.txt")); err != nil {
 		return err
 	} else if exists {
