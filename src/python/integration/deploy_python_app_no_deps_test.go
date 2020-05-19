@@ -1,8 +1,6 @@
 package integration_test
 
 import (
-	"path/filepath"
-
 	"github.com/cloudfoundry/libbuildpack/cutlass"
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
@@ -10,6 +8,12 @@ import (
 
 var _ = Describe("deploying a web app without dependencies", func() {
 	var app *cutlass.App
+
+	BeforeEach(func() {
+		if isMinicondaTest {
+			Skip("Skipping non-miniconda tests")
+		}
+	})
 
 	AfterEach(func() {
 		if app != nil {
@@ -22,7 +26,7 @@ var _ = Describe("deploying a web app without dependencies", func() {
 
 	Context("no requirements.txt or setup.py", func() {
 		BeforeEach(func() {
-			app = cutlass.New(filepath.Join(bpDir, "fixtures", "no_deps"))
+			app = cutlass.New(Fixtures("no_deps"))
 			app.Buildpacks = []string{"python_buildpack"}
 			app.SetEnv("BP_DEBUG", "1")
 		})
@@ -36,7 +40,7 @@ var _ = Describe("deploying a web app without dependencies", func() {
 
 	Context("with setup.py but not requirements.txt", func() {
 		BeforeEach(func() {
-			app = cutlass.New(filepath.Join(bpDir, "fixtures", "setup_py"))
+			app = cutlass.New(Fixtures("setup_py"))
 			app.Buildpacks = []string{"python_buildpack"}
 			app.SetEnv("BP_DEBUG", "1")
 		})

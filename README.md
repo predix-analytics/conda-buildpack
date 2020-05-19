@@ -24,7 +24,7 @@ To build this buildpack, run the following commands from the buildpack's directo
 1. Install buildpack-packager
 
     ```bash
-    (cd src/python/vendor/github.com/cloudfoundry/libbuildpack/packager/buildpack-packager && go install)
+    go install github.com/cloudfoundry/libbuildpack/packager/buildpack-packager
     ```
 
 1. Build the buildpack
@@ -47,7 +47,7 @@ To build this buildpack, run the following commands from the buildpack's directo
 Buildpacks use the [Cutlass](https://github.com/cloudfoundry/libbuildpack/tree/master/cutlass) framework for running integration tests.
 
 To test this buildpack, run the following commands from the buildpack's directory:
-
+ 
 1. Source the .envrc file in the buildpack directory.
 
    ```bash
@@ -74,6 +74,8 @@ To test this buildpack, run the following commands from the buildpack's director
     ```bash
     ./scripts/integration.sh
     ```
+    
+1. Note: To run the network tests, you must have Docker installed.   
 
 ### Contributing
 

@@ -4,9 +4,9 @@ import (
 	"io"
 	"io/ioutil"
 	"os"
-	"python/finalize"
-	_ "python/hooks"
-	"python/pyfinder"
+	"github.com/predix-analytics/conda-buildpack/src/python/finalize"
+	_ "github.com/predix-analytics/conda-buildpack/src/python/hooks"
+	"github.com/predix-analytics/conda-buildpack/src/python/pyfinder"
 	"time"
 
 	"github.com/cloudfoundry/libbuildpack"

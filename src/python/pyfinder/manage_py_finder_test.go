@@ -4,7 +4,7 @@ import (
 	"io/ioutil"
 	"os"
 	"path/filepath"
-	. "python/pyfinder"
+	. "github.com/predix-analytics/conda-buildpack/src/python/pyfinder"
 
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"

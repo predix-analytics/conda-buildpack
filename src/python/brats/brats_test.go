@@ -13,7 +13,7 @@ var _ = Describe("Python buildpack", func() {
 	bratshelper.DeployingAnAppWithAnUpdatedVersionOfTheSameBuildpack(CopyBrats)
 	bratshelper.StagingWithBuildpackThatSetsEOL("python", CopyBrats)
 	bratshelper.StagingWithADepThatIsNotTheLatest("python", CopyBrats)
-	bratshelper.StagingWithCustomBuildpackWithCredentialsInDependencies(`python\-[\d\.]+\-linux\-x64\-[\da-f]+\.tgz`, CopyBrats)
+	bratshelper.StagingWithCustomBuildpackWithCredentialsInDependencies(CopyBrats)
 	bratshelper.DeployAppWithExecutableProfileScript("python", CopyBrats)
 	bratshelper.DeployAnAppWithSensitiveEnvironmentVariables(CopyBrats)
 
@@ -36,7 +36,7 @@ var _ = Describe("Python buildpack", func() {
 			Expect(app.GetBody("/pg")).To(ContainSubstring("could not connect to server: No such file or directory"))
 		})
 		By("supports mysql by raising a no connection error", func() {
-			Expect(app.GetBody("/mysql")).To(ContainSubstring("Can't connect to local MySQL server through socket '/var/run/mysqld/mysqld.sock"))
+			Expect(app.GetBody("/mysql")).To(ContainSubstring("Can't connect to local MySQL server through socket"))
 		})
 		By("supports loading and running the hiredis lib", func() {
 			Expect(app.GetBody("/redis")).To(ContainSubstring("Hello"))

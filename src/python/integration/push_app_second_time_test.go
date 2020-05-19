@@ -1,8 +1,6 @@
 package integration_test
 
 import (
-	"path/filepath"
-
 	"github.com/cloudfoundry/libbuildpack/cutlass"
 
 	. "github.com/onsi/ginkgo"
@@ -11,6 +9,20 @@ import (
 
 var _ = Describe("pushing an app a second time", func() {
 	var app *cutlass.App
+
+	BeforeEach(func() {
+		if cutlass.Cached {
+			Skip("but running cached tests")
+		}
+
+		if isMinicondaTest {
+			Skip("Skipping non-miniconda tests")
+		}
+
+		app = cutlass.New(Fixtures("no_deps"))
+		app.Buildpacks = []string{"python_buildpack"}
+	})
+
 	AfterEach(func() {
 		if app != nil {
 			app.Destroy()
@@ -18,17 +30,9 @@ var _ = Describe("pushing an app a second time", func() {
 		app = nil
 	})
 
-	BeforeEach(func() {
-		if cutlass.Cached {
-			Skip("but running cached tests")
-		}
-
-		app = cutlass.New(filepath.Join(bpDir, "fixtures", "no_deps"))
-		app.Buildpacks = []string{"python_buildpack"}
-	})
-
-	DownloadRegexp := `Download \[.*/python\-[\d\.]+\-linux-x64-[0-9a-f]+\.tgz\]`
-	CopyRegexp := `Copy \[.*/python\-[\d\.]+\-linux-x64-[0-9a-f]+\.tgz\]`
+	Regexp := `\[.*/python\-[\d\.]+\-linux\-x64\-(cflinuxfs.*-)?[\da-f]+\.tgz\]`
+	DownloadRegexp := "Download " + Regexp
+	CopyRegexp := "Copy " + Regexp
 
 	It("uses the cache for manifest dependencies", func() {
 		PushAppAndConfirm(app)

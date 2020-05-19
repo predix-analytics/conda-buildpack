@@ -2,17 +2,20 @@ package supply
 
 import (
 	"bytes"
-	"errors"
+	"encoding/json"
 	"fmt"
 	"io"
 	"io/ioutil"
 	"os"
 	"bufio"
 	"path/filepath"
-	"python/conda"
-	"python/pipfile"
 	"regexp"
 	"strings"
+
+	"github.com/predix-analytics/conda-buildpack/src/python/conda"
+	"github.com/predix-analytics/conda-buildpack/src/python/pipfile"
+
+	"os/exec"
 
 	"github.com/cloudfoundry/libbuildpack"
 	"github.com/cloudfoundry/libbuildpack/snapshot"
@@ -32,24 +35,30 @@ type Stager interface {
 type Manifest interface {
 	AllDependencyVersions(string) []string
 	DefaultVersion(string) (libbuildpack.Dependency, error)
+	IsCached() bool
+}
+
+type Installer interface {
 	InstallDependency(libbuildpack.Dependency, string) error
 	InstallOnlyVersion(string, string) error
-	IsCached() bool
 }
 
 type Command interface {
 	Execute(string, io.Writer, io.Writer, string, ...string) error
 	Output(dir string, program string, args ...string) (string, error)
+	RunWithOutput(*exec.Cmd) ([]byte, error)
 }
 
 type Supplier struct {
-	PythonVersion string
-	Manifest      Manifest
-	Stager        Stager
-	Command       Command
-	Log           *libbuildpack.Logger
-	Logfile       *os.File
-	HasNltkData   bool
+	PythonVersion          string
+	Manifest               Manifest
+	Installer              Installer
+	Stager                 Stager
+	Command                Command
+	Log                    *libbuildpack.Logger
+	Logfile                *os.File
+	HasNltkData            bool
+	removeRequirementsText bool
 }
 
 func Run(s *Supplier) error {
@@ -57,7 +66,7 @@ func Run(s *Supplier) error {
 		s.Log.Error("Error checking existence of environment.yml: %v", err)
 		return err
 	} else if exists {
-		return conda.Run(conda.New(s.Manifest, s.Stager, s.Command, s.Log))
+		return conda.Run(conda.New(s.Installer, s.Stager, s.Command, s.Log))
 	} else {
 		return RunPython(s)
 	}
@@ -73,8 +82,8 @@ func RunPython(s *Supplier) error {
 		return err
 	}
 
-	if err := s.CopyRequirementsAndRuntimeTxt(); err != nil {
-		s.Log.Error("Error copying requirements.txt and runtime.txt to deps dir: %v", err)
+	if err := s.CopyRuntimeTxt(); err != nil {
+		s.Log.Error("Error copying runtime.txt to deps dir: %v", err)
 		return err
 	}
 
@@ -88,11 +97,6 @@ func RunPython(s *Supplier) error {
 		return err
 	}
 
-	if err := s.InstallPip(); err != nil {
-		s.Log.Error("Could not install pip: %v", err)
-		return err
-	}
-
 	if err := s.InstallPipPop(); err != nil {
 		s.Log.Error("Could not install pip pop: %v", err)
 		return err
@@ -103,13 +107,13 @@ func RunPython(s *Supplier) error {
 		return err
 	}
 
-	if err := s.HandlePylibmc(); err != nil {
-		s.Log.Error("Error checking Pylibmc: %v", err)
+	if err := s.HandleRequirementstxt(); err != nil {
+		s.Log.Error("Error checking requirements.txt: %v", err)
 		return err
 	}
 
-	if err := s.HandleRequirementstxt(); err != nil {
-		s.Log.Error("Error checking requirements.txt: %v", err)
+	if err := s.HandlePylibmc(); err != nil {
+		s.Log.Error("Error checking Pylibmc: %v", err)
 		return err
 	}
 
@@ -128,9 +132,21 @@ func RunPython(s *Supplier) error {
 		return err
 	}
 
-	if err := s.RunPip(); err != nil {
-		s.Log.Error("Could not install pip packages: %v", err)
-		return err
+	vendored, err := libbuildpack.FileExists(filepath.Join(s.Stager.BuildDir(), "vendor"))
+	if err != nil {
+		return fmt.Errorf("could not check vendor existence: %v", err)
+	}
+
+	if vendored {
+		if err := s.RunPipVendored(); err != nil {
+			s.Log.Error("Could not install vendored pip packages: %v", err)
+			return err
+		}
+	} else {
+		if err := s.RunPipUnvendored(); err != nil {
+			s.Log.Error("Could not install pip packages: %v", err)
+			return err
+		}
 	}
 
 	if err := s.DownloadNLTKCorpora(); err != nil {
@@ -152,12 +168,19 @@ func RunPython(s *Supplier) error {
 		s.Log.Debug("Size of pip cache dir: %s", cacheDirSize)
 	}
 
+	if s.removeRequirementsText {
+		if err := os.Remove(filepath.Join(s.Stager.BuildDir(), "requirements.txt")); err != nil {
+			s.Log.Error("Unable to clean up app directory: %s", err.Error())
+			return err
+		}
+	}
+
 	dirSnapshot.Diff()
 
 	return nil
 }
 
-func (s *Supplier) CopyRequirementsAndRuntimeTxt() error {
+func (s *Supplier) CopyRuntimeTxt() error {
 	if exists, err := libbuildpack.FileExists(filepath.Join(s.Stager.BuildDir(), "requirements.txt")); err != nil {
 		return err
 	} else if exists {
@@ -188,7 +211,7 @@ func (s *Supplier) CopyRequirementsAndRuntimeTxt() error {
 }
 
 func (s *Supplier) HandleMercurial() error {
-	if err := s.Command.Execute(s.Stager.DepDir(), ioutil.Discard, ioutil.Discard, "grep", "-Fiq", "hg+", "requirements.txt"); err != nil {
+	if err := s.Command.Execute(s.Stager.BuildDir(), ioutil.Discard, ioutil.Discard, "grep", "-Fiq", "hg+", "requirements.txt"); err != nil {
 		return nil
 	}
 
@@ -196,7 +219,7 @@ func (s *Supplier) HandleMercurial() error {
 		s.Log.Warning("Cloud Foundry does not support Pip Mercurial dependencies while in offline-mode. Vendor your dependencies if they do not work.")
 	}
 
-	if err := s.Command.Execute(s.Stager.BuildDir(), indentWriter(os.Stdout), indentWriter(os.Stderr), "pip", "install", "mercurial"); err != nil {
+	if err := s.Command.Execute(s.Stager.BuildDir(), indentWriter(os.Stdout), indentWriter(os.Stderr), "python", "-m", "pip", "install", "mercurial"); err != nil {
 		return err
 	}
 
@@ -272,7 +295,7 @@ func (s *Supplier) InstallPython() error {
 	}
 
 	pythonInstallDir := filepath.Join(s.Stager.DepDir(), "python")
-	if err := s.Manifest.InstallDependency(dep, pythonInstallDir); err != nil {
+	if err := s.Installer.InstallDependency(dep, pythonInstallDir); err != nil {
 		return err
 	}
 
@@ -327,11 +350,11 @@ func (s *Supplier) RewriteShebangs() error {
 
 func (s *Supplier) InstallPipPop() error {
 	tempPath := filepath.Join("/tmp", "pip-pop")
-	if err := s.Manifest.InstallOnlyVersion("pip-pop", tempPath); err != nil {
+	if err := s.Installer.InstallOnlyVersion("pip-pop", tempPath); err != nil {
 		return err
 	}
 
-	if err := s.Command.Execute(s.Stager.BuildDir(), ioutil.Discard, ioutil.Discard, "pip", "install", "pip-pop", "--exists-action=w", "--no-index", fmt.Sprintf("--find-links=%s", tempPath)); err != nil {
+	if err := s.Command.Execute(s.Stager.BuildDir(), ioutil.Discard, ioutil.Discard, "python", "-m", "pip", "install", "pip-pop", "--exists-action=w", "--no-index", fmt.Sprintf("--find-links=%s", tempPath)); err != nil {
 		s.Log.Debug("******Path val: %s", os.Getenv("PATH"))
 		return err
 	}
@@ -343,65 +366,114 @@ func (s *Supplier) InstallPipPop() error {
 }
 
 func (s *Supplier) InstallPipEnv() error {
-	requirementstxtExists, err := libbuildpack.FileExists(filepath.Join(s.Stager.DepDir(), "requirements.txt"))
+	requirementstxtExists, err := libbuildpack.FileExists(filepath.Join(s.Stager.BuildDir(), "requirements.txt"))
 	if err != nil {
 		return err
+	} else if requirementstxtExists {
+		return nil
 	}
 
 	pipfileExists, err := libbuildpack.FileExists(filepath.Join(s.Stager.BuildDir(), "Pipfile"))
 	if err != nil {
 		return err
+	} else if !pipfileExists {
+		return nil
 	}
 
-	if pipfileExists && !requirementstxtExists {
-		if strings.HasPrefix(s.PythonVersion, "python-3.3.") {
-			return errors.New("pipenv does not support python 3.3.x")
-		}
-		s.Log.Info("Installing pipenv")
-		if err := s.Manifest.InstallOnlyVersion("pipenv", filepath.Join("/tmp", "pipenv")); err != nil {
-			return err
-		}
-
-		if err := s.installFfi(); err != nil {
-			return err
-		}
-
-		for _, dep := range []string{"setuptools_scm", "pytest-runner", "pipenv"} {
-			out := &bytes.Buffer{}
-			stderr := &bytes.Buffer{}
-			if err := s.Command.Execute(s.Stager.BuildDir(), out, stderr, "pip", "install", dep, "--exists-action=w", "--no-index", fmt.Sprintf("--find-links=%s", filepath.Join("/tmp", "pipenv"))); err != nil {
-				s.Log.Debug("Got error running pip install " + dep + "\nSTDOUT: \n" + string(out.Bytes()) + "\nSTDERR: \n" + string(stderr.Bytes()))
-				return err
-			}
-		}
-		s.Stager.LinkDirectoryInDepDir(filepath.Join(s.Stager.DepDir(), "python", "bin"), "bin")
-		s.Log.Info("Generating 'requirements.txt' with pipenv")
-
-		output, err := s.Command.Output(s.Stager.BuildDir(), "pipenv", "lock", "--requirements")
+	hasLockFile, err := libbuildpack.FileExists(filepath.Join(s.Stager.BuildDir(), "Pipfile.lock"))
+	if err != nil {
+		return fmt.Errorf("could not check Pipfile.lock existence: %v", err)
+	} else if hasLockFile {
+		s.Log.Info("Generating 'requirements.txt' from Pipfile.lock")
+		requirementsContents, err := pipfileToRequirements(filepath.Join(s.Stager.BuildDir(), "Pipfile.lock"))
 		if err != nil {
-			return err
+			return fmt.Errorf("failed to write `requirement.txt` from Pipfile.lock: %s", err.Error())
 		}
 
-		// Remove output due to virtualenv
-		if strings.HasPrefix(output, "Using ") {
-			reqs := strings.SplitN(output, "\n", 2)
-			if len(reqs) > 0 {
-				output = reqs[1]
-			}
-		}
+		return s.writeTempRequirementsTxt(requirementsContents)
+	}
 
-		if err := ioutil.WriteFile(filepath.Join(s.Stager.DepDir(), "requirements.txt"), []byte(output), 0644); err != nil {
-			return err
+	s.Log.Info("Installing pipenv")
+	if err := s.Installer.InstallOnlyVersion("pipenv", filepath.Join("/tmp", "pipenv")); err != nil {
+		return err
+	}
+
+	if err := s.installFfi(); err != nil {
+		return err
+	}
+
+	for _, dep := range []string{"setuptools_scm", "pytest-runner", "parver", "invoke", "pipenv", "wheel"} {
+		s.Log.Info("Installing %s", dep)
+		out := &bytes.Buffer{}
+		stderr := &bytes.Buffer{}
+		if err := s.Command.Execute(s.Stager.BuildDir(), out, stderr, "python", "-m", "pip", "install", dep, "--exists-action=w", "--no-index", fmt.Sprintf("--find-links=%s", filepath.Join("/tmp", "pipenv"))); err != nil {
+			return fmt.Errorf("Failed to install %s: %v.\nStdout: %v\nStderr: %v", dep, err, out, stderr)
 		}
 	}
-	return nil
+	s.Stager.LinkDirectoryInDepDir(filepath.Join(s.Stager.DepDir(), "python", "bin"), "bin")
+
+	s.Log.Info("Generating 'requirements.txt' with pipenv")
+	cmd := exec.Command("pipenv", "lock", "--requirements")
+	cmd.Dir = s.Stager.BuildDir()
+	cmd.Env = append(os.Environ(), "VIRTUALENV_NEVER_DOWNLOAD=true")
+	output, err := s.Command.RunWithOutput(cmd)
+	if err != nil {
+		return err
+	}
+	outputString := string(output)
+
+	// Remove output due to virtualenv
+	if strings.HasPrefix(outputString, "Using ") {
+		reqs := strings.SplitN(outputString, "\n", 2)
+		if len(reqs) > 0 {
+			outputString = reqs[1]
+		}
+	}
+
+	return s.writeTempRequirementsTxt(outputString)
+}
+
+func pipfileToRequirements(lockFilePath string) (string, error) {
+	var lockFile struct {
+		Meta struct {
+			Sources []struct {
+				URL string
+			}
+		} `json:"_meta"`
+		Default map[string]struct {
+			Version string
+		}
+	}
+
+	lockContents, err := ioutil.ReadFile(lockFilePath)
+	if err != nil {
+		return "", err
+	}
+
+	err = json.Unmarshal(lockContents, &lockFile)
+	if err != nil {
+		return "", err
+	}
+
+	buf := &bytes.Buffer{}
+
+	for _, source := range lockFile.Meta.Sources {
+		fmt.Fprintf(buf, "-i %s\n", source.URL)
+	}
+
+	for pkg, obj := range lockFile.Default {
+		fmt.Fprintf(buf, "%s%s\n", pkg, obj.Version)
+	}
+
+	return buf.String(), nil
 }
 
 func (s *Supplier) HandlePylibmc() error {
 	memcachedDir := filepath.Join(s.Stager.DepDir(), "libmemcache")
-	if err := s.Command.Execute(s.Stager.DepDir(), ioutil.Discard, ioutil.Discard, "pip-grep", "-s", "requirements.txt", "pylibmc"); err == nil {
+
+	if err := s.Command.Execute(s.Stager.BuildDir(), ioutil.Discard, ioutil.Discard, "pip-grep", "-s", "requirements.txt", "pylibmc"); err == nil {
 		s.Log.BeginStep("Noticed pylibmc. Bootstrapping libmemcached.")
-		if err := s.Manifest.InstallOnlyVersion("libmemcache", memcachedDir); err != nil {
+		if err := s.Installer.InstallOnlyVersion("libmemcache", memcachedDir); err != nil {
 			return err
 		}
 		os.Setenv("LIBMEMCACHED", memcachedDir)
@@ -416,7 +488,7 @@ func (s *Supplier) HandlePylibmc() error {
 }
 
 func (s *Supplier) HandleRequirementstxt() error {
-	if exists, err := libbuildpack.FileExists(filepath.Join(s.Stager.DepDir(), "requirements.txt")); err != nil {
+	if exists, err := libbuildpack.FileExists(filepath.Join(s.Stager.BuildDir(), "requirements.txt")); err != nil {
 		return err
 	} else if exists {
 		return nil
@@ -428,7 +500,7 @@ func (s *Supplier) HandleRequirementstxt() error {
 		return nil
 	}
 
-	return ioutil.WriteFile(filepath.Join(s.Stager.DepDir(), "requirements.txt"), []byte("-e ."), 0644)
+	return s.writeTempRequirementsTxt("-e .")
 }
 
 func (s *Supplier) installFfi() error {
@@ -440,7 +512,7 @@ func (s *Supplier) installFfi() error {
 	// from requirements.txt needs libffi.
 	if os.Getenv("LIBFFI") != ffiDir {
 		s.Log.BeginStep("Noticed dependency requiring libffi. Bootstrapping libffi.")
-		if err := s.Manifest.InstallOnlyVersion("libffi", ffiDir); err != nil {
+		if err := s.Installer.InstallOnlyVersion("libffi", ffiDir); err != nil {
 			return err
 		}
 		versions := s.Manifest.AllDependencyVersions("libffi")
@@ -454,34 +526,9 @@ func (s *Supplier) installFfi() error {
 }
 
 func (s *Supplier) HandleFfi() error {
-	if err := s.Command.Execute(s.Stager.DepDir(), ioutil.Discard, ioutil.Discard, "pip-grep", "-s", "requirements.txt", "argon2-cffi", "bcrypt", "cffi", "cryptography", "django[argon2]", "Django[argon2]", "django[bcrypt]", "Django[bcrypt]", "PyNaCl", "pyOpenSSL", "PyOpenSSL", "requests[security]", "misaka"); err == nil {
+	if err := s.Command.Execute(s.Stager.BuildDir(), ioutil.Discard, ioutil.Discard, "pip-grep", "-s", "requirements.txt", "pymysql", "argon2-cffi", "bcrypt", "cffi", "cryptography", "django[argon2]", "Django[argon2]", "django[bcrypt]", "Django[bcrypt]", "PyNaCl", "pyOpenSSL", "PyOpenSSL", "requests[security]", "misaka"); err == nil {
 		return s.installFfi()
 	}
-	return nil
-}
-
-func (s *Supplier) InstallPip() error {
-	for _, name := range []string{"setuptools", "pip"} {
-		if err := s.Manifest.InstallOnlyVersion(name, filepath.Join("/tmp", name)); err != nil {
-			return err
-		}
-		versions := s.Manifest.AllDependencyVersions(name)
-		outWriter := new(bytes.Buffer)
-		if err := s.Command.Execute(filepath.Join("/tmp", name, name+"-"+versions[0]), ioutil.Discard, ioutil.Discard, "python", "setup.py", "install", fmt.Sprintf("--prefix=%s", filepath.Join(s.Stager.DepDir(), "python"))); err != nil {
-			s.Log.Error(outWriter.String())
-			return err
-		}
-	}
-
-	for _, dir := range []string{"bin", "lib", "include"} {
-		if err := s.Stager.LinkDirectoryInDepDir(filepath.Join(s.Stager.DepDir(), "python", dir), dir); err != nil {
-			return err
-		}
-	}
-	if err := s.Stager.LinkDirectoryInDepDir(filepath.Join(s.Stager.DepDir(), "python", "lib", "pkgconfig"), "pkgconfig"); err != nil {
-		return err
-	}
-
 	return nil
 }
 
@@ -495,7 +542,17 @@ func (s *Supplier) UninstallUnusedDependencies() error {
 		fileContents, _ := ioutil.ReadFile(filepath.Join(s.Stager.DepDir(), "python", "requirements-declared.txt"))
 		s.Log.Info("requirements-declared: %s", string(fileContents))
 
-		staleContents, err := s.Command.Output(s.Stager.BuildDir(), "pip-diff", "--stale", filepath.Join(s.Stager.DepDir(), "python", "requirements-declared.txt"), filepath.Join(s.Stager.DepDir(), "requirements.txt"), "--exclude", "setuptools", "pip", "wheel")
+		staleContents, err := s.Command.Output(
+			s.Stager.BuildDir(),
+			"pip-diff",
+			"--stale",
+			filepath.Join(s.Stager.DepDir(), "python", "requirements-declared.txt"),
+			filepath.Join(s.Stager.BuildDir(), "requirements.txt"),
+			"--exclude",
+			"setuptools",
+			"pip",
+			"wheel",
+		)
 		if err != nil {
 			return err
 		}
@@ -509,7 +566,17 @@ func (s *Supplier) UninstallUnusedDependencies() error {
 		}
 
 		s.Log.BeginStep("Uninstalling stale dependencies")
-		if err := s.Command.Execute(s.Stager.BuildDir(), indentWriter(os.Stdout), indentWriter(os.Stderr), "pip", "uninstall", "-r", filepath.Join(s.Stager.DepDir(), "python", "requirements-stale.txt", "-y", "--exists-action=w")); err != nil {
+		if err := s.Command.Execute(
+			s.Stager.BuildDir(),
+			indentWriter(os.Stdout),
+			indentWriter(os.Stderr),
+			"python",
+			"-m",
+			"pip",
+			"uninstall",
+			"-r",
+			filepath.Join(s.Stager.DepDir(), "python", "requirements-stale.txt", "-y", "--exists-action=w"),
+		); err != nil {
 			return err
 		}
 
@@ -518,30 +585,119 @@ func (s *Supplier) UninstallUnusedDependencies() error {
 	return nil
 }
 
-func (s *Supplier) RunPip() error {
-	s.Log.BeginStep("Running Pip Install")
-	if exists, err := libbuildpack.FileExists(filepath.Join(s.Stager.DepDir(), "requirements.txt")); err != nil {
-		return fmt.Errorf("Couldn't determine existence of requirements.txt")
-	} else if !exists {
-		s.Log.Debug("Skipping 'pip install' since requirements.txt does not exist")
+func (s *Supplier) RunPipUnvendored() error {
+	shouldContinue, requirementsPath, err := s.shouldRunPip()
+	if err != nil {
+		return err
+	} else if !shouldContinue {
 		return nil
 	}
-	
-	installArgs := []string{"install", "-r", filepath.Join(s.Stager.DepDir(), "requirements.txt"), "--ignore-installed", "--exists-action=w", "--src=" + filepath.Join(s.Stager.DepDir(), "src")}
-	vendorExists, err := libbuildpack.FileExists(filepath.Join(s.Stager.BuildDir(), "vendor"))
+
+	// Search lines from requirements.txt that begin with -i, --index-url, --extra-index-url or --trusted-host
+	// and add them to the pydistutils file. We do this so that easy_install will use
+	// the same indexes as pip. This may not actually be necessary because it's possible that
+	// easy_install has been fixed upstream, but it has no ill side-effects.
+	reqs, err := ioutil.ReadFile(requirementsPath)
 	if err != nil {
-		return fmt.Errorf("Couldn't check vendor existence: %v", err)
-	} else if vendorExists {
-		installArgs = append(installArgs, "--no-index", "--find-links=file://"+filepath.Join(s.Stager.BuildDir(), "vendor"))
+		return fmt.Errorf("could not read requirements.txt: %v", err)
 	}
 
-	if err := s.Command.Execute(s.Stager.BuildDir(), indentWriter(os.Stdout), indentWriter(os.Stderr), "pip", installArgs...); err != nil {
-		s.Log.Debug("******Path val: %s", os.Getenv("PATH"))
+	distUtils := map[string][]string{}
 
-		if vendorExists {
-			s.Log.Info("pip install has failed. You have a vendor directory, it must contain all of your dependencies.")
+	re := regexp.MustCompile(`(?m)^\s*(-i|--index-url)\s+(.*)$`)
+	match := re.FindStringSubmatch(string(reqs))
+	if len(match) > 0 {
+		distUtils["index_url"] = []string{match[len(match)-1]}
+	}
+
+	re = regexp.MustCompile(`(?m)^\s*--extra-index-url\s+(.*)$`)
+	matches := re.FindAllStringSubmatch(string(reqs), -1)
+	for _, m := range matches {
+		distUtils["find_links"] = append(distUtils["find_links"], m[len(m)-1])
+	}
+
+	re = regexp.MustCompile(`(?m)^\s*--trusted-host\s+(.*)$`)
+	matches = re.FindAllStringSubmatch(string(reqs), -1)
+	if len(matches) > 0 {
+		var allowHosts []string
+		for _, m := range matches {
+			allowHosts = append(allowHosts, m[len(m)-1])
 		}
-		return fmt.Errorf("Couldn't run pip: %v", err)
+		distUtils["allow_hosts"] = []string{strings.Join(allowHosts, ",")}
+	}
+
+	if err := writePyDistUtils(distUtils); err != nil {
+		return err
+	}
+
+	installArgs := []string{"-m", "pip", "install", "-r", requirementsPath, "--ignore-installed", "--exists-action=w", "--src=" + filepath.Join(s.Stager.DepDir(), "src")}
+	if err := s.Command.Execute(s.Stager.BuildDir(), indentWriter(os.Stdout), indentWriter(os.Stderr), "python", installArgs...); err != nil {
+		return fmt.Errorf("could not run pip: %v", err)
+	}
+
+	return s.Stager.LinkDirectoryInDepDir(filepath.Join(s.Stager.DepDir(), "python", "bin"), "bin")
+}
+
+func (s *Supplier) RunPipVendored() error {
+	shouldContinue, requirementsPath, err := s.shouldRunPip()
+	if err != nil {
+		return err
+	} else if !shouldContinue {
+		return nil
+	}
+
+	distUtils := map[string][]string{
+		"allows_hosts": {""},
+		"find_links":   {filepath.Join(s.Stager.BuildDir(), "vendor")},
+	}
+	if err := writePyDistUtils(distUtils); err != nil {
+		return err
+	}
+
+	installArgs := []string{
+		"-m",
+		"pip",
+		"install",
+		"-r",
+		requirementsPath,
+		"--ignore-installed",
+		"--exists-action=w",
+		"--src=" + filepath.Join(s.Stager.DepDir(), "src"),
+		"--no-index",
+		"--find-links=file://" + filepath.Join(s.Stager.BuildDir(), "vendor"),
+	}
+
+	if s.hasBuildOptions() {
+		s.Log.Info("Using the pip --no-build-isolation flag since it is available")
+		installArgs = append(installArgs, "--no-build-isolation")
+	}
+
+	// Remove lines from requirements.txt that begin with -i
+	// because specifying index links here makes pip always want internet access,
+	// and pipenv generates requirements.txt with -i.
+	originalReqs, err := ioutil.ReadFile(requirementsPath)
+	if err != nil {
+		return fmt.Errorf("could not read requirements.txt: %v", err)
+	}
+
+	re := regexp.MustCompile(`(?m)^\s*-i.*$`)
+	modifiedReqs := re.ReplaceAll(originalReqs, []byte{})
+	err = ioutil.WriteFile(requirementsPath, modifiedReqs, 0644)
+	if err != nil {
+		return fmt.Errorf("could not overwrite requirements file: %v", err)
+	}
+
+	if err := s.Command.Execute(s.Stager.BuildDir(), indentWriter(os.Stdout), indentWriter(os.Stderr), "python", installArgs...); err != nil {
+		s.Log.Info("Running pip install without indexes failed. Not all dependencies were vendored. Trying again with indexes.")
+
+		if err := ioutil.WriteFile(requirementsPath, originalReqs, 0644); err != nil {
+			return fmt.Errorf("could not overwrite modified requirements file: %v", err)
+		}
+
+		if err := s.RunPipUnvendored(); err != nil {
+			s.Log.Info("Running pip install failed. You need to include all dependencies in the vendor directory.")
+			return err
+		}
 	}
 
 	return s.Stager.LinkDirectoryInDepDir(filepath.Join(s.Stager.DepDir(), "python", "bin"), "bin")
@@ -613,6 +769,49 @@ func (s *Supplier) DownloadNLTKCorpora() error {
 	return nil
 }
 
+func (s *Supplier) SetupCacheDir() error {
+	if err := os.Setenv("XDG_CACHE_HOME", filepath.Join(s.Stager.CacheDir(), "pip_cache")); err != nil {
+		return err
+	}
+	if err := s.Stager.WriteEnvFile("XDG_CACHE_HOME", filepath.Join(s.Stager.CacheDir(), "pip_cache")); err != nil {
+		return err
+	}
+	return nil
+}
+
+func writePyDistUtils(distUtils map[string][]string) error {
+	pyDistUtilsPath := filepath.Join(os.Getenv("HOME"), ".pydistutils.cfg")
+
+	b := strings.Builder{}
+	b.WriteString("[easy_install]\n")
+	for k, v := range distUtils {
+		b.WriteString(fmt.Sprintf("%s = %s\n", k, strings.Join(v, "\n\t")))
+	}
+
+	if err := ioutil.WriteFile(pyDistUtilsPath, []byte(b.String()), os.ModePerm); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (s *Supplier) shouldRunPip() (bool, string, error) {
+	s.Log.BeginStep("Running Pip Install")
+	if os.Getenv("PIP_CERT") == "" {
+		os.Setenv("PIP_CERT", "/etc/ssl/certs/ca-certificates.crt")
+	}
+
+	requirementsPath := filepath.Join(s.Stager.BuildDir(), "requirements.txt")
+	if exists, err := libbuildpack.FileExists(requirementsPath); err != nil {
+		return false, "", fmt.Errorf("could not determine existence of requirements.txt: %v", err)
+	} else if !exists {
+		s.Log.Debug("Skipping 'pip install' since requirements.txt does not exist")
+		return false, "", nil
+	}
+
+	return true, requirementsPath, nil
+}
+
 func (s *Supplier) formatVersion(version string) string {
 	verSlice := strings.Split(version, ".")
 
@@ -624,52 +823,52 @@ func (s *Supplier) formatVersion(version string) string {
 
 }
 
-func indentWriter(writer io.Writer) io.Writer {
-	return text.NewIndentWriter(writer, []byte("       "))
+func (s *Supplier) writeTempRequirementsTxt(content string) error {
+	s.removeRequirementsText = true
+	return ioutil.WriteFile(filepath.Join(s.Stager.BuildDir(), "requirements.txt"), []byte(content), 0644)
 }
 
-func (s *Supplier) SetupCacheDir() error {
-	if err := os.Setenv("XDG_CACHE_HOME", filepath.Join(s.Stager.CacheDir(), "pip_cache")); err != nil {
-		return err
-	}
-	if err := s.Stager.WriteEnvFile("XDG_CACHE_HOME", filepath.Join(s.Stager.CacheDir(), "pip_cache")); err != nil {
-		return err
-	}
-	return nil
+func (s *Supplier) hasBuildOptions() bool {
+	err := s.Command.Execute(s.Stager.BuildDir(), nil, nil, "python", "-m", "pip", "install", "--no-build-isolation", "-h")
+	return nil == err
+}
+
+func indentWriter(writer io.Writer) io.Writer {
+	return text.NewIndentWriter(writer, []byte("       "))
 }
 
 func (s *Supplier) MergeFiles() error {
 	s.Log.BeginStep("Merge conda-requirements.txt into requirements.txt and using pip to install both non-conda and conda libs")
 	sourcefile, err := os.Open(filepath.Join(s.Stager.BuildDir(), "conda-requirements.txt"))
-  	if err != nil {
-   		return err
- 	}
-	
-	s.Log.BeginStep("appending to requirements.txt")
-	targetfile, err := os.OpenFile(filepath.Join(s.Stager.BuildDir(), "requirements.txt"), os.O_APPEND|os.O_WRONLY, 0644) 
 	if err != nil {
 		return err
 	}
 
- 	scanner := bufio.NewScanner(sourcefile)
+	s.Log.BeginStep("appending to requirements.txt")
+	targetfile, err := os.OpenFile(filepath.Join(s.Stager.BuildDir(), "requirements.txt"), os.O_APPEND|os.O_WRONLY, 0644)
+	if err != nil {
+		return err
+	}
+
+	scanner := bufio.NewScanner(sourcefile)
 	numpys:= make([]string, 0)
 	for scanner.Scan() {
 		if(strings.ToLower(strings.TrimSpace(scanner.Text())) != "nomkl") {
 			if(strings.HasPrefix(strings.TrimSpace(scanner.Text()), "numpy")) {
 				numpys = append(numpys, strings.TrimSpace(scanner.Text()))
 			} else {
-				targetfile.WriteString(strings.TrimSpace(scanner.Text())) 
-				targetfile.WriteString("\n") 
+				targetfile.WriteString(strings.TrimSpace(scanner.Text()))
+				targetfile.WriteString("\n")
 			}
 		}
-  	}
-	
-	targetfile.WriteString(numpys[len(numpys)-1]) 
-	targetfile.WriteString("\n") 
- 	
+	}
+
+	targetfile.WriteString(numpys[len(numpys)-1])
+	targetfile.WriteString("\n")
+
 	sourcefile.Close()
 	targetfile.Close()
-	
+
 	s.Log.BeginStep("requirements.txt after merge")
 	buf, err := ioutil.ReadFile(filepath.Join(s.Stager.BuildDir(), "requirements.txt"))
 	if err != nil {
@@ -686,25 +885,26 @@ func (s *Supplier) MergeFilesWithoutRemovingNomkl() error {
 		return err
 	}
 	fmt.Println(string(b))
-	
+
 	s.Log.BeginStep("appending to requirements.txt")
-	f, err := os.OpenFile(filepath.Join(s.Stager.BuildDir(), "requirements.txt"), os.O_APPEND|os.O_WRONLY, 0644) 
+	f, err := os.OpenFile(filepath.Join(s.Stager.BuildDir(), "requirements.txt"), os.O_APPEND|os.O_WRONLY, 0644)
 	if err != nil {
 		return err
 	}
-	n, err := f.WriteString(string(b)) 
+	n, err := f.WriteString(string(b))
 	if err != nil {
 		return err
 	}
 	fmt.Printf("\nLength: %d bytes", n)
 	f.Close()
-	
+
 	s.Log.BeginStep("requirements.txt after merge")
 	buf, err := ioutil.ReadFile(filepath.Join(s.Stager.BuildDir(), "requirements.txt"))
 	if err != nil {
 		return err
 	}
 	fmt.Println(string(buf))
-			      
+
 	return nil
 }
+

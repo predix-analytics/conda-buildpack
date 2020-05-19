@@ -8,9 +8,9 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"time"
 
-	"github.com/blang/semver"
 	"github.com/cloudfoundry/libbuildpack/cutlass"
 
 	. "github.com/onsi/ginkgo"
@@ -21,9 +21,16 @@ import (
 
 var bpDir string
 var buildpackVersion string
+var isMinicondaTest bool
 var packagedBuildpack cutlass.VersionedBuildpackPackage
 
+var _ = func() bool {
+	testing.Init()
+	return true
+}()
+
 func init() {
+	flag.BoolVar(&isMinicondaTest, "miniconda", false, "run just miniconda tests")
 	flag.StringVar(&buildpackVersion, "version", "", "version to use (builds if empty)")
 	flag.BoolVar(&cutlass.Cached, "cached", true, "cached buildpack")
 	flag.StringVar(&cutlass.DefaultMemory, "memory", "128M", "default memory for pushed apps")
@@ -34,7 +41,7 @@ func init() {
 var _ = SynchronizedBeforeSuite(func() []byte {
 	// Run once
 	if buildpackVersion == "" {
-		packagedBuildpack, err := cutlass.PackageUniquelyVersionedBuildpack()
+		packagedBuildpack, err := cutlass.PackageUniquelyVersionedBuildpack(os.Getenv("CF_STACK"), ApiHasStackAssociation())
 		Expect(err).NotTo(HaveOccurred())
 
 		data, err := json.Marshal(packagedBuildpack)
@@ -86,21 +93,30 @@ func Restart(app *cutlass.App) {
 	Eventually(func() ([]string, error) { return app.InstanceStates() }, 20*time.Second).Should(Equal([]string{"RUNNING"}))
 }
 
-func ApiGreaterThan(version string) bool {
-	apiVersionString, err := cutlass.ApiVersion()
-	Expect(err).To(BeNil())
-	apiVersion, err := semver.Make(apiVersionString)
-	Expect(err).To(BeNil())
-	reqVersion, err := semver.ParseRange(">= " + version)
-	Expect(err).To(BeNil())
-	return reqVersion(apiVersion)
+func ApiHasTask() bool {
+	supported, err := cutlass.ApiGreaterThan("2.75.0")
+	Expect(err).NotTo(HaveOccurred())
+	return supported
 }
 
-func ApiHasTask() bool {
-	return ApiGreaterThan("2.75.0")
-}
 func ApiHasMultiBuildpack() bool {
-	return ApiGreaterThan("2.90.0")
+	supported, err := cutlass.ApiGreaterThan("2.90.0")
+	Expect(err).NotTo(HaveOccurred())
+	return supported
+}
+
+func ApiHasStackAssociation() bool {
+	supported, err := cutlass.ApiGreaterThan("2.113.0")
+	Expect(err).NotTo(HaveOccurred())
+	return supported
+}
+
+func Fixtures(names ...string) string {
+	root, err := cutlass.FindRoot()
+	Expect(err).NotTo(HaveOccurred())
+
+	names = append([]string{root, "fixtures"}, names...)
+	return filepath.Join(names...)
 }
 
 func AssertUsesProxyDuringStagingIfPresent(fixtureName string) {
@@ -122,13 +138,13 @@ func AssertUsesProxyDuringStagingIfPresent(fixtureName string) {
 			Expect(err).To(BeNil())
 			defer os.Remove(bpFile)
 
-			traffic, err := cutlass.InternetTraffic(
-				bpDir,
-				filepath.Join("fixtures", fixtureName),
+			traffic, _, _, err := cutlass.InternetTraffic(
+				Fixtures(fixtureName),
 				bpFile,
 				[]string{"HTTP_PROXY=" + proxy.URL, "HTTPS_PROXY=" + proxy.URL},
 			)
 			Expect(err).To(BeNil())
+			// Expect(built).To(BeTrue())
 
 			destUrl, err := url.Parse(proxy.URL)
 			Expect(err).To(BeNil())
@@ -152,13 +168,20 @@ func AssertNoInternetTraffic(fixtureName string) {
 		Expect(err).To(BeNil())
 		defer os.Remove(bpFile)
 
-		traffic, err := cutlass.InternetTraffic(
-			bpDir,
-			filepath.Join("fixtures", fixtureName),
+		traffic, built, logs, err := cutlass.InternetTraffic(
+			Fixtures(fixtureName),
 			bpFile,
-			[]string{},
+			[]string{"LC_ALL C.UTF-8", "LANG C.UTF-8"},
 		)
 		Expect(err).To(BeNil())
-		Expect(traffic).To(BeEmpty())
+		Expect(built).To(BeTrue(), strings.Join(logs, "\n"))
+		Expect(traffic).To(BeEmpty(), strings.Join(logs, "\n"))
 	})
+}
+
+func RunCf(args ...string) error {
+	command := exec.Command("cf", args...)
+	command.Stdout = GinkgoWriter
+	command.Stderr = GinkgoWriter
+	return command.Run()
 }

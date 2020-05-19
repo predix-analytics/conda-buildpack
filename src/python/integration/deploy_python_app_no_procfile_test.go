@@ -1,8 +1,6 @@
 package integration_test
 
 import (
-	"path/filepath"
-
 	"github.com/cloudfoundry/libbuildpack/cutlass"
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
@@ -11,6 +9,12 @@ import (
 var _ = Describe("deploying a flask web app", func() {
 
 	var app *cutlass.App
+
+	BeforeEach(func() {
+		if isMinicondaTest {
+			Skip("Skipping non-miniconda tests")
+		}
+	})
 
 	AfterEach(func() {
 		if app != nil {
@@ -21,7 +25,7 @@ var _ = Describe("deploying a flask web app", func() {
 
 	Context("start command is specified in manifest.yml", func() {
 		BeforeEach(func() {
-			app = cutlass.New(filepath.Join(bpDir, "fixtures", "flask_no_procfile"))
+			app = cutlass.New(Fixtures("flask_no_procfile"))
 		})
 
 		It("deploys", func() {
