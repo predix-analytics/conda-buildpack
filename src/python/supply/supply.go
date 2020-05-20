@@ -336,6 +336,13 @@ func (s *Supplier) InstallPipPop() error {
 		return err
 	}
 
+	if err := s.Command.Execute(s.Stager.BuildDir(), ioutil.Discard, ioutil.Discard, "pip", "install", "-U", "pip"); err != nil {
+		s.Log.Error("Unable to upgrade pip")
+		s.Log.Debug("******Path val: %s", os.Getenv("PATH"))
+		return err
+	}
+
+
 	if err := s.Stager.LinkDirectoryInDepDir(filepath.Join(s.Stager.DepDir(), "python", "bin"), "bin"); err != nil {
 		return err
 	}
