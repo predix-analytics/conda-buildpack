@@ -336,7 +336,7 @@ func (s *Supplier) InstallPipPop() error {
 		return err
 	}
 
-	if err := s.Command.Execute(s.Stager.BuildDir(), ioutil.Discard, ioutil.Discard, "pip", "install", "-U", "pip"); err != nil {
+	if err := s.Command.Execute(s.Stager.BuildDir(), ioutil.Discard, ioutil.Discard, "python", "-m", "pip",  "install", "--force-reinstall", "pip==19.3.1"); err != nil {
 		s.Log.Error("Unable to upgrade pip")
 		s.Log.Debug("******Path val: %s", os.Getenv("PATH"))
 		return err
@@ -533,7 +533,7 @@ func (s *Supplier) RunPip() error {
 		s.Log.Debug("Skipping 'pip install' since requirements.txt does not exist")
 		return nil
 	}
-	
+
 	installArgs := []string{"install", "-r", filepath.Join(s.Stager.DepDir(), "requirements.txt"), "--ignore-installed", "--exists-action=w", "--src=" + filepath.Join(s.Stager.DepDir(), "src")}
 	vendorExists, err := libbuildpack.FileExists(filepath.Join(s.Stager.BuildDir(), "vendor"))
 	if err != nil {
@@ -648,35 +648,35 @@ func (s *Supplier) SetupCacheDir() error {
 func (s *Supplier) MergeFiles() error {
 	s.Log.BeginStep("Merge conda-requirements.txt into requirements.txt and using pip to install both non-conda and conda libs")
 	sourcefile, err := os.Open(filepath.Join(s.Stager.BuildDir(), "conda-requirements.txt"))
-  	if err != nil {
-   		return err
- 	}
-	
-	s.Log.BeginStep("appending to requirements.txt")
-	targetfile, err := os.OpenFile(filepath.Join(s.Stager.BuildDir(), "requirements.txt"), os.O_APPEND|os.O_WRONLY, 0644) 
 	if err != nil {
 		return err
 	}
 
- 	scanner := bufio.NewScanner(sourcefile)
-	numpys:= make([]string, 0)
+	s.Log.BeginStep("appending to requirements.txt")
+	targetfile, err := os.OpenFile(filepath.Join(s.Stager.BuildDir(), "requirements.txt"), os.O_APPEND|os.O_WRONLY, 0644)
+	if err != nil {
+		return err
+	}
+
+	scanner := bufio.NewScanner(sourcefile)
+	numpys := make([]string, 0)
 	for scanner.Scan() {
 		if(strings.ToLower(strings.TrimSpace(scanner.Text())) != "nomkl") {
 			if(strings.HasPrefix(strings.TrimSpace(scanner.Text()), "numpy")) {
 				numpys = append(numpys, strings.TrimSpace(scanner.Text()))
 			} else {
-				targetfile.WriteString(strings.TrimSpace(scanner.Text())) 
-				targetfile.WriteString("\n") 
+				targetfile.WriteString(strings.TrimSpace(scanner.Text()))
+				targetfile.WriteString("\n")
 			}
 		}
-  	}
-	
-	targetfile.WriteString(numpys[len(numpys)-1]) 
-	targetfile.WriteString("\n") 
- 	
+	}
+
+	targetfile.WriteString(numpys[len(numpys)-1])
+	targetfile.WriteString("\n")
+
 	sourcefile.Close()
 	targetfile.Close()
-	
+
 	s.Log.BeginStep("requirements.txt after merge")
 	buf, err := ioutil.ReadFile(filepath.Join(s.Stager.BuildDir(), "requirements.txt"))
 	if err != nil {
@@ -693,25 +693,25 @@ func (s *Supplier) MergeFilesWithoutRemovingNomkl() error {
 		return err
 	}
 	fmt.Println(string(b))
-	
+
 	s.Log.BeginStep("appending to requirements.txt")
-	f, err := os.OpenFile(filepath.Join(s.Stager.BuildDir(), "requirements.txt"), os.O_APPEND|os.O_WRONLY, 0644) 
+	f, err := os.OpenFile(filepath.Join(s.Stager.BuildDir(), "requirements.txt"), os.O_APPEND|os.O_WRONLY, 0644)
 	if err != nil {
 		return err
 	}
-	n, err := f.WriteString(string(b)) 
+	n, err := f.WriteString(string(b))
 	if err != nil {
 		return err
 	}
 	fmt.Printf("\nLength: %d bytes", n)
 	f.Close()
-	
+
 	s.Log.BeginStep("requirements.txt after merge")
 	buf, err := ioutil.ReadFile(filepath.Join(s.Stager.BuildDir(), "requirements.txt"))
 	if err != nil {
 		return err
 	}
 	fmt.Println(string(buf))
-			      
+
 	return nil
 }
