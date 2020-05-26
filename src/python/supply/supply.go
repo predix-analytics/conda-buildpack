@@ -534,7 +534,7 @@ func (s *Supplier) RunPip() error {
 		return nil
 	}
 
-	installArgs := []string{"install", "-r", filepath.Join(s.Stager.DepDir(), "requirements.txt"), "--ignore-installed", "--exists-action=w", "--src=" + filepath.Join(s.Stager.DepDir(), "src")}
+	installArgs := []string{"install", "-r", filepath.Join(s.Stager.DepDir(), "requirements.txt"), "--quiet", "--ignore-installed", "--exists-action=w", "--src=" + filepath.Join(s.Stager.DepDir(), "src")}
 	vendorExists, err := libbuildpack.FileExists(filepath.Join(s.Stager.BuildDir(), "vendor"))
 	if err != nil {
 		return fmt.Errorf("Couldn't check vendor existence: %v", err)
