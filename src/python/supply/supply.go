@@ -1,13 +1,13 @@
 package supply
 
 import (
+	"bufio"
 	"bytes"
 	"errors"
 	"fmt"
 	"io"
 	"io/ioutil"
 	"os"
-	"bufio"
 	"path/filepath"
 	"python/conda"
 	"python/pipfile"
@@ -550,7 +550,10 @@ func (s *Supplier) RunPip() error {
 		}
 		return fmt.Errorf("Couldn't run pip: %v", err)
 	}
-
+	err = os.Remove(filepath.Join(s.Stager.DepDir(), "requirements.txt"))
+	if err == nil {
+		s.Log.Info("Requirements.txt deleted.")
+	}
 	return s.Stager.LinkDirectoryInDepDir(filepath.Join(s.Stager.DepDir(), "python", "bin"), "bin")
 }
 
