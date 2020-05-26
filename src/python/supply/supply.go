@@ -552,7 +552,11 @@ func (s *Supplier) RunPip() error {
 	}
 	err = os.Remove(filepath.Join(s.Stager.DepDir(), "requirements.txt"))
 	if err == nil {
-		s.Log.Info("Requirements.txt deleted.")
+		s.Log.Info("Requirements.txt deleted from " + s.Stager.DepDir())
+	}
+	err = os.Remove(filepath.Join(s.Stager.BuildDir(), "requirements.txt"))
+	if err == nil {
+		s.Log.Info("Requirements.txt deleted from " + s.Stager.BuildDir())
 	}
 	return s.Stager.LinkDirectoryInDepDir(filepath.Join(s.Stager.DepDir(), "python", "bin"), "bin")
 }
@@ -681,11 +685,10 @@ func (s *Supplier) MergeFiles() error {
 	targetfile.Close()
 
 	s.Log.BeginStep("requirements.txt after merge")
-	buf, err := ioutil.ReadFile(filepath.Join(s.Stager.BuildDir(), "requirements.txt"))
+	_, err = ioutil.ReadFile(filepath.Join(s.Stager.BuildDir(), "requirements.txt"))
 	if err != nil {
 		return err
 	}
-	fmt.Println(string(buf))
 	return nil
 }
 
