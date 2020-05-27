@@ -668,24 +668,36 @@ func (s *Supplier) MergeFiles() error {
 			if(strings.HasPrefix(strings.TrimSpace(scanner.Text()), "numpy")) {
 				numpys = append(numpys, strings.TrimSpace(scanner.Text()))
 			} else {
-				targetfile.WriteString(strings.TrimSpace(scanner.Text()))
-				targetfile.WriteString("\n")
+				_, _ = targetfile.WriteString(strings.TrimSpace(scanner.Text()))
+				_, _ = targetfile.WriteString("\n")
 			}
 		}
 	}
 
-	targetfile.WriteString(numpys[len(numpys)-1])
-	targetfile.WriteString("\n")
+	_, _ = targetfile.WriteString(numpys[len(numpys)-1])
+	_, _ = targetfile.WriteString("\n")
 
-	sourcefile.Close()
-	targetfile.Close()
+	_ = sourcefile.Close()
+	_ = targetfile.Close()
 
 	s.Log.BeginStep("requirements.txt after merge")
-	_, err = ioutil.ReadFile(filepath.Join(s.Stager.BuildDir(), "requirements.txt"))
+	buf, err := ioutil.ReadFile(filepath.Join(s.Stager.BuildDir(), "requirements.txt"))
 	if err != nil {
 		return err
 	}
+	displayWithoutTheFirstLine(buf)
 	return nil
+}
+
+func displayWithoutTheFirstLine(buf []byte) {
+	var reqTxtForDisplay strings.Builder
+	lines := strings.Split(string(buf), "\n")
+	for i, line := range lines {
+		if i > 0 {
+			reqTxtForDisplay.WriteString(line)
+		}
+	}
+	fmt.Println(reqTxtForDisplay.String())
 }
 
 func (s *Supplier) MergeFilesWithoutRemovingNomkl() error {
