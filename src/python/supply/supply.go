@@ -690,14 +690,14 @@ func (s *Supplier) MergeFiles() error {
 }
 
 func displayWithoutTheFirstLine(buf []byte) {
-	var reqTxtForDisplay strings.Builder
+	var reqTxtForDisplay string
 	lines := strings.Split(string(buf), "\n")
 	for i, line := range lines {
 		if i > 0 {
-			reqTxtForDisplay.WriteString(line)
+			reqTxtForDisplay+=line
 		}
 	}
-	fmt.Println(reqTxtForDisplay.String())
+	fmt.Println(reqTxtForDisplay)
 }
 
 func (s *Supplier) MergeFilesWithoutRemovingNomkl() error {
