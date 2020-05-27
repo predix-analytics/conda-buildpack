@@ -534,7 +534,7 @@ func (s *Supplier) RunPip() error {
 		return nil
 	}
 
-	installArgs := []string{"install", "-r", filepath.Join(s.Stager.DepDir(), "requirements.txt"), "--ignore-installed", "--exists-action=w", "--src=" + filepath.Join(s.Stager.DepDir(), "src")}
+	installArgs := []string{"install", "-r", filepath.Join(s.Stager.DepDir(), "requirements.txt"), "--no-warn-script-location", "--ignore-installed", "--exists-action=w", "--src=" + filepath.Join(s.Stager.DepDir(), "src")}
 	vendorExists, err := libbuildpack.FileExists(filepath.Join(s.Stager.BuildDir(), "vendor"))
 	if err != nil {
 		return fmt.Errorf("Couldn't check vendor existence: %v", err)
@@ -549,10 +549,6 @@ func (s *Supplier) RunPip() error {
 			s.Log.Info("pip install has failed. You have a vendor directory, it must contain all of your dependencies.")
 		}
 		return fmt.Errorf("Couldn't run pip: %v", err)
-	}
-	err = os.Remove(filepath.Join(s.Stager.DepDir(), "requirements.txt"))
-	if err == nil {
-		s.Log.Info("Requirements.txt deleted from " + s.Stager.DepDir())
 	}
 	err = os.Remove(filepath.Join(s.Stager.BuildDir(), "requirements.txt"))
 	if err == nil {
