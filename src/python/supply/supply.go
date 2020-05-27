@@ -693,7 +693,8 @@ func displayWithoutTheFirstLine(buf []byte) {
 	var reqTxtForDisplay string
 	lines := strings.Split(string(buf), "\n")
 	for i, line := range lines {
-		if i > 0 {
+		if i > 1 {
+			line+="\n"
 			reqTxtForDisplay+=line
 		}
 	}
